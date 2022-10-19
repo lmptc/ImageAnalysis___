@@ -84,71 +84,147 @@ def LoadTOF(dataFolder='.', TOF_filename='TOF_list.txt', units_of_tof='ms'):
     tof_list = np.loadtxt(dataFolder + "//" + TOF_filename)
     return tof_list, units_of_tof 
     
-# to load a series of FLIR .pgm images into a 4D numpy array
-def loadSeriesPGM(params, root_filename, number_of_pics=1, n_params=0, data_folder= "." , background_file_name= "background.pgm"):
-# n_params is the number of embedded image information fields which are checked, vales between 0 to 10, default 0 
+
+def loadPGM(filename):
+    
+    with open(filename, 'r') as f:
+        filetype = f.readline()
+        if filetype.strip() != "P2":
+            raise Exception("wrong format, should be P2")
+            return
+         
+        res = f.readline().split()
+        cols = int(res[0])
+        rows = int(res[1])
+        pixel_number = rows*cols
+        
+        maxval = f.readline()
+        
+        datastrings = f.read().split()
+        data = [x for x in map(int, datastrings)]
+        rows2discard = 2
+        data = data[(cols*rows2discard):] # discard the first two rows
+        rows = rows-rows2discard
+        data_array = np.array(data)
+        data_array = np.reshape(data_array, (rows,cols))
+        
+    return data_array 
+    
+
+# to load a numbered series of FLIR .pgm images into a 4D numpy array
+# filenames must be in this format: root + number.pgm. Numers must start from 1 
+def loadSeriesPGM(params, root_filename, number_of_pics=1, picturesPerIteration=1 , n_params=0, data_folder= "." , background_file_name=""):
+# n_params is the number of embedded image information fields which are checked, values between 0 to 10, default 0 
 # zero is black, maxval is white
 # maxval that our files show is 65536 because of the 2 byte packets but the ADC is 12 bit so
 # i think in practice pixel values are between 0 and 4096 
 # the standard binary .pgm file starts with string P5 \n width space height \n 65535 \n
-    for x in range(number_of_pics): 
-        filename = data_folder + "\\" + root_filename + str(x+1)+ ".pgm"  
+
+# read the background image into a 1d numpy array whose size is pixel_nimber
+# width and height of the background images should be the same as the series of images 
+    number_of_iterations = int(number_of_pics/picturesPerIteration)
+
+    filename = data_folder + "\\" + root_filename + str(1)+ ".pgm" 
+    first_image = loadPGM(filename)    
+    rows,cols = np.shape(first_image)
+    
+    pixel_number = rows*cols
+    
+    if background_file_name:
+        bg_filename = data_folder + "\\" + background_file_name   
+        bg_data_array = loadPGM(bg_filename)
+    else:
+        bg_data_array = np.zeros((rows,cols), first_image.dtype)
         
-        with open(filename, 'r') as f:
-            filetype = f.readline()
-            if filetype.strip() != "P2":
-                raise Exception("wrong format, should be P2")
-                return
+    
+    image_array = np.zeros((number_of_iterations, picturesPerIteration, rows, cols))
+
+    for iteration in range(number_of_iterations):
+        for picture in range(picturesPerIteration):
+            x = iteration*picturesPerIteration + picture
+            filename = data_folder + "\\" + root_filename + str(x+1)+ ".pgm"  
+            data_array_corrected = loadPGM(filename) - bg_data_array
+            image_array[iteration, picture,:,:] = data_array_corrected
             
-            res = f.readline().split()
-            cols = int(res[0])
-            rows = int(res[1])
-            pixel_number = rows*cols
-            print("Resolution is: Columns=",cols," and Rows=", rows, ".")
-            print("Total number of pixels is=", pixel_number)
-            maxval = f.readline()
-            
-            datastrings = f.read().split()
-            data = [x for x in map(int, datastrings)]
-            
-            data2D = np.reshape(data,(rows,cols))
-            
-            #Throw away first row or two containing the first 20 numbers
-            
-            # if maxval == 65535:
-            #     maxval = 4096
-               
-            # if filetype == "P5\n":
-            #     f.close
-            #     with open(filename, 'br') as f:
-                
-                
-            # nextline = f.readline()
-            # print(nextline)    
-            
-            # header = f.read(18) #this number should be 18 when width is 3 digits and height is 4 digits
-            # print(header)
-            # meta = f.read(4*n_params+0)
-            # print(meta)
-            # img_tmp = f.read()
-            # img = np.frombuffer(img_tmp, dtype=np.int16)
-            # print("image size is:", 1288*964)
-            # print(np.size(img))
-            # print(img)
+    return image_array
+        
+    
+    
+    
+    # with open(bg_filename, 'r') as f:
+    #     filetype = f.readline()
+    #     if filetype.strip() != "P2":
+    #         raise Exception("wrong format, should be P2")
+    #         return
+         
+    #     bg_res = f.readline().split()
+    #     bg_cols = int(bg_res[0])
+    #     bg_rows = int(bg_res[1])
+    #     bg_pixel_number = bg_rows*bg_cols
+        
+    #     bg_maxval = f.readline()
+         
+    #     bg_datastrings = f.read().split()
+    #     bg_data = [x for x in map(int, bg_datastrings)]
+        
+    #     rows2discard = bg_rows-rows
+    #     bg_data = bg_data[(cols*rows2discard):] # discard the first rows2discard rows
+    #     bg_data_array = np.array(bg_data)
         
         
-        # data_array_corrected = data_array - background_array #spool file that is background corrected
-        # image_array[x*params.number_of_pixels: (x+1)*params.number_of_pixels] = data_array
-        # print("max value before background subtraction = "+str(np.max(image_array)))
-        # image_array_corrected[x*params.number_of_pixels: (x+1)*params.number_of_pixels] = data_array_corrected
+        
+    #     bg_data_array = np.array(bg_data)
+
+
+# read all images in the series into a 1D numpy array whose length is number_of_pics*pixel_number
+# also background correct all images
+        
+        # with open(filename, 'r') as f:
+        #     filetype = f.readline()
+        #     if filetype.strip() != "P2":
+        #         raise Exception("wrong format, should be P2")
+        #         return
             
+        #     res = f.readline().split()
+        #     cols = int(res[0])
+        #     if bg_cols != cols:               
+        #         raise Exception("background image doesnt have same number of columns as data")
+        #     rows = int(res[1])
+        #     if bg_rows != rows:
+        #         raise Exception("background doesnt have same number of rows as data")
+        #     pixel_number = rows*cols
+        #     if bg_pixel_number != pixel_number:
+        #         raise Exception("background doesnt have same pixel number as data")
+        #     print("Resolution is: Columns=",cols," and Rows=", rows, ".")
+        #     print("Total number of pixels =", pixel_number)
+            
+        #     maxval = f.readline()
+            
+        #     datastrings = f.read().split()
+        #     data = [x for x in map(int, datastrings)]
+        #     #data = data[(cols*2)-1:] # discard the first two rows
+        #     f.close()
+            
+        #     data_array = np.array(data) # convert into a numpy array   
+            
+        #data_array_corrected = data_array - bg_data_array # all images are background corrected
+
+        # print("frame #", x+1 , "max value before background subtraction = "+str(np.max(data_array)))
+        # print("frame #", x+1 , "min value before background subtraction = "+str(np.min(data_array)))
+        # print("frame #", x+1 , "max value after background subtraction = "+str(np.max(data_array_corrected)))
+        # print("frame #", x+1 , "min value after background subtraction = "+str(np.min(data_array_corrected)))
+
+        # # uppend the image to the larger 1D numpy array that contains all the images back to back and in order 
+        # image_array[x*pixel_number: (x+1)*pixel_number] = data_array
+        # image_array_corrected[x*pixel_number: (x+1)*pixel_number] = data_array_corrected
+
+        # images = np.reshape(image_array_corrected,(number_of_iterations, picturesPerIteration, rows, cols))
+        # return images 
+        
         # reshape the total_image_array_corrected into a 4D array
         # outermost dimension's size is equal to the number of iterations, 
         # 2nd outer dimensions size is number of pictures per iteration
-        # 3rd dimensions size is equal to the height of the images
-        #print(params.number_of_iterations, params.picturesPerIteration, params.height, params.width)
-    #images = np.reshape(image_array_corrected,(params.number_of_iterations, params.picturesPerIteration, params.height, params.width))
-    #return images      
+        # 3rd dimensions size is equal to the height of the images     
 
 # to load a series of non-spooled Andor .dat images into a 4D numpy array
 def LoadSeries(params, root_filename, data_folder= "." , background_file_name= "background.dat"):
@@ -308,7 +384,6 @@ def ShowImages(images):
     
     for it in range(iterations):
         for pic in range(picturesPerIteration):
-            print(it,pic)
             ax = plt.subplot(iterations, picturesPerIteration, it*picturesPerIteration + pic+1)
             ax.imshow(images[it,pic,:,:],cmap="gray")#,vmin = imin, vmax=imax)
     plt.tight_layout()
@@ -574,8 +649,8 @@ if __name__ == "__main__":
 
     # CountsToAtoms(params, images[3,4,:,:])
 
-    loadSeriesPGM(params, root_filename="P2-nonchecked", number_of_pics=1, n_params=0, data_folder= "." , background_file_name= "")       
-        
+    images = loadSeriesPGM(params, root_filename="test", number_of_pics=3, picturesPerIteration=1, n_params=0, data_folder= ".")       
+    ShowImages(images)    
 
     
     # print("Number of iterations=",params.number_of_iterations)
